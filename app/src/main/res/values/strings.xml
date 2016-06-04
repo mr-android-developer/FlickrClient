@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Flickr</string>
+    <string name="map">КАРТА</string>
+    <string name="owner">Автор:</string>
+    <string name="longitude">Долгота:</string>
+    <string name="latitude">Широта:</string>
+    <string name="search">Поиск</string>
+    <string name="update">Обновить</string>
+    <string name="search_hint">Поиск</string>
+</resources>
