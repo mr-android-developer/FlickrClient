@@ -1,5 +1,6 @@
 package com.example.qwe.flickr.view;
 
+import android.support.annotation.StringRes;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentTransaction;
 import android.support.v7.app.AppCompatActivity;
@@ -8,6 +9,7 @@ import android.support.v7.widget.Toolbar;
 import android.view.Menu;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import com.example.qwe.flickr.R;
 import com.example.qwe.flickr.view.images.ImagesFragment;
@@ -22,6 +24,9 @@ public class MainActivity extends AppCompatActivity {
 
     @BindView(R.id.toolbar)
     Toolbar toolbar;
+
+    @BindView(R.id.tv_title)
+    TextView tvTitle;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,5 +60,14 @@ public class MainActivity extends AppCompatActivity {
 
     public void showToolBar(){
         toolbar.setVisibility(View.VISIBLE);
+    }
+
+    public void showTitle(@StringRes int textId){
+        tvTitle.setText(textId);
+        tvTitle.setVisibility(View.VISIBLE);
+    }
+
+    public void hideTitle(){
+        tvTitle.setVisibility(View.GONE);
     }
 }

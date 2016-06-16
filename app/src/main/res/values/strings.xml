@@ -7,4 +7,6 @@
     <string name="search">Поиск</string>
     <string name="update">Обновить</string>
     <string name="search_hint">Поиск</string>
+    <string name="loading">Загрузка&#8230;</string>
+    <string name="caching">Кэширование&#8230;</string>
 </resources>

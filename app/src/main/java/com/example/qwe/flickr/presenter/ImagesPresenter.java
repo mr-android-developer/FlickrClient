@@ -6,6 +6,7 @@ import android.os.Bundle;
 import com.example.qwe.flickr.App;
 import com.example.qwe.flickr.model.Model;
 import com.example.qwe.flickr.model.data.Image;
+import com.example.qwe.flickr.model.response.ImagesResponse;
 import com.example.qwe.flickr.view.ImagesView;
 
 import java.util.ArrayList;
@@ -24,25 +25,26 @@ public class ImagesPresenter {
         CACHE
     }
 
+    enum LoadStatus {
+        LOADING_NEW_DATA,
+        LOADING_MORE_DATA,
+        CACHING_DATA,
+        LOADING_COMPLETE
+    }
+
     @Inject
     Model model;
 
     @Inject
     NetworkState networkState;
 
-    private boolean loading;
-
-    private boolean loadingMore;
+    private LoadStatus loadStatus = LoadStatus.LOADING_COMPLETE;
 
     /**
      * Все загруженные фотографии
      */
     private ArrayList<Image> images;
 
-    /**
-     * Порция подгруженных фотографий,
-     */
-    private ArrayList<Image> newImages;
 
     private ImagesView view;
 
@@ -61,62 +63,77 @@ public class ImagesPresenter {
      */
     private String query;
 
-    private Subscriber<ArrayList<Image>> subscriber;
 
-    public ImagesPresenter(){
+    public ImagesPresenter() {
         App.appComponent().inject(this);
     }
 
     /**
      * Фрагмент/активити созданны
      */
-    public void onCreate(Bundle savedInstanceState){
-        if (images == null && !loading){
+    public void onCreate(Bundle savedInstanceState) {
+        if (images == null) {
             if (networkState.isConnected()) {
-                if (savedInstanceState == null){
+                if (savedInstanceState == null) {
                     model.clearCache();
                 }
-                loadPhotos(loadingMore);
                 photosSource = PhotoSource.RECENT;
+                loadPhotos(LoadStatus.LOADING_NEW_DATA);
             } else {
-                images = model.getCachedPhotos();
                 photosSource = PhotoSource.CACHE;
+                images = model.getCachedPhotos();
             }
         }
     }
 
+
     /**
      * Привязка view
      */
-    public void onCreateView(ImagesView imagesView){
+    public void bindView(ImagesView imagesView){
         view = imagesView;
-        if (loading){
-            if (loadingMore) {
-                view.showSmallProgressBar();
-                view.showPhotos(images);
-            } else {
-                view.showProgressBar();
-            }
-        } else {
+        if (images != null){
             view.showPhotos(images);
+        }
+        showStatus();
+    }
+
+    public void onToolBarReady(){
+        showStatus();
+    }
+
+    private void showStatus(){
+        if (view != null) {
+            switch (loadStatus) {
+                case LOADING_NEW_DATA:
+                    view.onLoadingImages();
+                    break;
+                case LOADING_MORE_DATA:
+                    view.onMoreLoadingImages();
+                    break;
+                case CACHING_DATA:
+                    view.onCachingImages();
+                    break;
+            }
         }
     }
 
     /**
      * Вызывается каждый раз при скроллинге, если неебходимо запрашиваем еще порцию фотографий
+     *
      * @param visibleItemCount - кол-во видимых элементов
      * @param firstVisibleItem - позиция первого видимого элемента
      */
-    public void onScrolled(int visibleItemCount, int firstVisibleItem){
+    public void onScrolled(int visibleItemCount, int firstVisibleItem) {
         int visibleThreshold = 5;
-        if (!loading && images != null && (images.size() - visibleItemCount) <= (firstVisibleItem + visibleThreshold)){
-            view.showSmallProgressBar();
+        if (loadStatus == LoadStatus.LOADING_COMPLETE && images != null && (images.size() - visibleItemCount) <= (firstVisibleItem + visibleThreshold)) {
+            view.onMoreLoadingImages();
             switch (photosSource) {
-                case RECENT :
-                    loadPhotos(true);
+                case RECENT:
+                    loadPhotos(LoadStatus.LOADING_MORE_DATA);
                     break;
                 case SEARCH:
-                    search(query, true);
+                    search(query, LoadStatus.LOADING_MORE_DATA);
                     break;
             }
         }
@@ -126,144 +143,126 @@ public class ImagesPresenter {
     /**
      * Пользователь запросил обновление данных
      */
-    public void onRefresh(){
+    public void onRefresh() {
         if (networkState.isConnected()) {
             photosSource = PhotoSource.RECENT;
             images.clear();
             model.clearCache();
             view.clearPhotos();
-            loadPhotos(false);
+            loadPhotos(LoadStatus.LOADING_NEW_DATA);
         } else {
-            view.showError("Нет соединения");
+            view.onError("Нет соединения");
         }
     }
 
     /**
      * Запрос свежих фотографий
-     * @param loadMore - покзывать ли индикатор загрузки
      */
-    private void loadPhotos(boolean loadMore){
-        if (!loading && haveMorePhotos()){
-            unSubscribe();
-            loadingMore = loadMore;
-            subscriber = getSubscriber();
+    private void loadPhotos(LoadStatus newLoadStatus) {
+        if (loadStatus == LoadStatus.LOADING_COMPLETE && haveMorePhotos()) {
+            loadStatus = newLoadStatus;
             model.getRecent(PAGE_SIZE, getNextPageNum())
-                    .doOnSubscribe(() -> onLoad(loadMore))
+                    .doOnSubscribe(this::showStatus)
                     .switchMap(photosResponse -> {
-                        if (images == null){
-                            images = new ArrayList<>();
-                        }
-                        newImages = photosResponse.photos.getImages();
-                        images.addAll(newImages);
-                        total = photosResponse.photos.getTotal();
+                        ImagesResponse.Photos photos = photosResponse.photos;
+                        onNetworkLoadCompleted(photos.getImages(), photos.getTotal());
+                        onStartCaching();
                         return model.cachePhotos(photosResponse.photos.getImages());
                     })
-                    .subscribe(subscriber);
+                    //.doOnSubscribe(this::onStartCaching)
+                    .subscribe(getCacheSubscriber());
         }
     }
 
-    private void unSubscribe(){
-        if (subscriber != null && !subscriber.isUnsubscribed()){
-            subscriber.unsubscribe();
-        }
-    }
 
     /**
      * Вызывается каждый раз когда пользователь нажал кнопку поиска
+     *
      * @param query - искомый текст
      */
-    public void onSearch(String query){
+    public void onSearch(String query) {
         if (networkState.isConnected()) {
             this.query = query;
             images.clear();
             model.clearCache();
             view.clearPhotos();
-            search(query, false);
+            search(query, LoadStatus.LOADING_NEW_DATA);
         } else {
-            view.showError("Нет соединения");
+            view.onError("Нет соединения");
         }
     }
 
     /**
      * Отправляем модели запрос на поиск фотографий
+     *
      * @param query - искомы текст
-     * @param loadMore - показывать ли индикатор загрузки
      */
-    private void search(String query, boolean loadMore){
-        if (!loading && haveMorePhotos()){
-            unSubscribe();
-            subscriber = getSubscriber();
+    private void search(String query, LoadStatus newLoadStatus) {
+        if (loadStatus == LoadStatus.LOADING_COMPLETE && haveMorePhotos()) {
+            loadStatus = newLoadStatus;
             model.search(query, PAGE_SIZE, getNextPageNum())
-                    .doOnSubscribe(() -> onLoad(loadMore))
+                    .doOnSubscribe(this::showStatus)
                     .switchMap(photosResponse -> {
-                        if (images == null){
-                            images = new ArrayList<>();
-                        }
-                        newImages = photosResponse.photos.getImages();
-                        images.addAll(newImages);
-                        total = photosResponse.photos.getTotal();
+                        ImagesResponse.Photos photos = photosResponse.photos;
+                        onNetworkLoadCompleted(photos.getImages(), photos.getTotal());
+                        onStartCaching();
                         return model.cachePhotos(photosResponse.photos.getImages());
                     })
-                    .subscribe(subscriber);
+                    //.doOnSubscribe(this::onStartCaching)
+                    .subscribe(getCacheSubscriber());
         }
     }
 
-    private Subscriber<ArrayList<Image>> getSubscriber(){
+    private Subscriber<ArrayList<Image>> getCacheSubscriber() {
         return new Subscriber<ArrayList<Image>>() {
             @Override
             public void onCompleted() {
-                onStopLoad();
+                loadStatus = LoadStatus.LOADING_COMPLETE;
+                if (view != null) {
+                    view.onComplete();
+                }
             }
 
             @Override
             public void onError(Throwable t) {
-                onErrorLoad(t);
+                loadStatus = LoadStatus.LOADING_COMPLETE;
+                if (view != null) {
+                    view.onError(t.getMessage());
+                }
             }
 
             @Override
-            public void onNext(ArrayList<Image> cachedImages) {
-                view.showPhotos(newImages);
+            public void onNext(ArrayList<Image> images) {
+
             }
         };
     }
 
-
-    private int getNextPageNum(){
+    private int getNextPageNum() {
         return images != null ? (images.size() / PAGE_SIZE) + 1 : 1;
     }
 
-    private boolean haveMorePhotos(){
+    private boolean haveMorePhotos() {
         return images == null || images.size() == 0 || images.size() < total || (photosSource == PhotoSource.CACHE);
     }
 
-    private void onLoad(boolean loadMore){
-        loading = true;
+    private void onStartCaching() {
+        loadStatus = LoadStatus.CACHING_DATA;
+        showStatus();
+    }
+
+    private void onNetworkLoadCompleted(ArrayList<Image> responseImages, int responseTotal) {
+        if (images == null) images = new ArrayList<>();
+        images.addAll(responseImages);
+        total = responseTotal;
         if (view != null) {
-            view.hideProgressBar();
-            if (!loadMore) {
-                view.showProgressBar();
-            } else {
-                view.showSmallProgressBar();
-            }
+            view.onComplete();
+            view.showPhotos(images);
         }
     }
 
-    private void onStopLoad(){
-        loading = false;
-        if (view != null) {
-            view.hideProgressBar();
-            view.hideSmallProgressBar();
-        }
-    }
 
-    private void onErrorLoad(Throwable t){
-        onStopLoad();
-        if (view != null){
-            view.showError(t.getMessage());
-        }
-    }
-
-    public void unbindView(){
+    public void unbindView() {
         view = null;
     }
 

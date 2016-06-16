@@ -78,7 +78,7 @@ public class ImagesFragment extends Fragment implements ImagesView {
         progressDialog.setCancelable(false);
         final LinearLayoutManager lm = new LinearLayoutManager(getContext());
         rcImages.setLayoutManager(lm);
-        presenter.onCreateView(this);
+        //presenter.onCreateView(this);
         rcImages.setAdapter(imagesAdapter);
         rcImages.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -90,6 +90,11 @@ public class ImagesFragment extends Fragment implements ImagesView {
         return view;
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        presenter.bindView(this);
+    }
 
     @Override
     public void onCreateOptionsMenu(Menu menu, MenuInflater inflater) {
@@ -118,6 +123,7 @@ public class ImagesFragment extends Fragment implements ImagesView {
         });
         miProgressBar = menu.findItem(R.id.action_progress_bar);
         menuReady = true;
+        presenter.onToolBarReady();
     }
 
 
@@ -135,17 +141,9 @@ public class ImagesFragment extends Fragment implements ImagesView {
     }
 
     @Override
-    public void showProgressBar() {
-        progressDialog.show();
-    }
-
-    @Override
-    public void hideProgressBar() {
-        progressDialog.dismiss();
-    }
-
-    @Override
-    public void showError(String error) {
+    public void onError(String error) {
+        hideProgressBar();
+        hideSmallProgressBar();
         Toast.makeText(getContext(), error, Toast.LENGTH_LONG).show();
     }
 
@@ -160,7 +158,40 @@ public class ImagesFragment extends Fragment implements ImagesView {
         imagesAdapter.clear();
     }
 
+
     @Override
+    public void onLoadingImages() {
+        showProgressBar();
+        activity().showTitle(R.string.loading);
+    }
+
+    @Override
+    public void onCachingImages() {
+        showSmallProgressBar();
+        activity().showTitle(R.string.caching);
+    }
+
+    @Override
+    public void onComplete() {
+        hideProgressBar();
+        hideSmallProgressBar();
+        activity().hideTitle();
+    }
+
+    @Override
+    public void onMoreLoadingImages() {
+        showSmallProgressBar();
+        activity().showTitle(R.string.loading);
+    }
+
+    public void showProgressBar() {
+        progressDialog.show();
+    }
+
+    public void hideProgressBar() {
+        progressDialog.dismiss();
+    }
+
     public void showSmallProgressBar() {
         if (menuReady) {
             miProgressBar.setVisible(true);
@@ -169,12 +200,15 @@ public class ImagesFragment extends Fragment implements ImagesView {
         }
     }
 
-    @Override
     public void hideSmallProgressBar() {
         if (menuReady) {
             miProgressBar.setVisible(false);
             miRefresh.setVisible(true);
             miSearch.setVisible(true);
         }
+    }
+
+    private MainActivity activity(){
+        return (MainActivity) getActivity();
     }
 }
